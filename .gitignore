@@ -1,0 +1,13 @@
+
+.env
+.envrc
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+chroma_db/
+*.sqlite3
+friend_messages.json
