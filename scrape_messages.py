@@ -67,7 +67,7 @@ async def on_ready():
                     break
 
                 if message.author.id == TARGET_USER_ID and message.content.strip():
-                    collected.appen({
+                    collected.append({
                         "id": str(message.id),
                         "channel": channel.name,
                         "content": message.content,
