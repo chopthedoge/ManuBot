@@ -35,13 +35,13 @@ def generate_response(query_text):
     system_prompt = build_prompt(query_text, similar)
 
     completion = groq_client.chat.completions.create(
-        model="openai/gpt-oss-120b",
+        model="qwen/qwen3.8-27b",
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": query_text},
         ],
         temperature=0.9,
-        max_tokens=500,
+        max_tokens=900,
     )
 
     return completion.choices[0].message.content
