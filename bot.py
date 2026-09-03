@@ -21,8 +21,11 @@ MAX_HISTORY_MESSAGES = 10
 client_db = chromadb.PersistentClient(path="./chroma_db")
 collection = client_db.get_or_create_collection(name="freind_messages")
 client_db = chromadb.PersistentClient(path="./chroma_db")
+archive_collection = client_db.get_or_create_collection(name="server_archive")
 collection = client_db.get_or_create_collection(name="friend_messages")
 print(f"[debug] bot.py collection count: {collection.count()}")
+
+# groq api keys setup
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
@@ -113,6 +116,25 @@ def generate_response(conversation_id, user_message):
 
     return reply, doc_id
 
+def add_to_archive(text, author, channel_name, timestamp):
+    doc_id = str(uuid.uuid4())
+    archive_collection.add(
+        ids=[doc_id],
+        documents=[text],
+        metadatas=[{
+            "author": author,
+            "channel": channel_name,
+            "timestamp": timestamp,
+        }],
+    )
+    return doc_id
+
+def search_archive(query_text, n_results=5):
+    results = archive_collection.query(query_texts=[query_text], n_results=n_results)
+    documents = results["documents"][0]
+    metadatas = results["metadatas"][0]
+    return list(zip(documents, metadatas))
+
 @discord_client.event
 async def on_ready():
     mode = "TRAINING (single channel only)" if TRAINING_MODE else "LIVE ALL CHANNELS (mention-based)"
@@ -126,6 +148,30 @@ async def on_message(message):
 
     in_training_channel = message.channel.id == TRAINING_CHANNEL_ID
     is_mentioned = discord_client.user in message.mentions
+
+    if message.content.startswith("!remember "):
+        note = message.content[len("!remember"):].strip()
+        add_to_archive(
+            text=note,
+            author=str(message.author),
+            channel_name=message.channel.name,
+            timestamp=message.created_at.isoformat(),
+        )
+        await message.channel.send(f"Message archived: \"{note}\"")
+        return
+
+    if message.content.startswith("!recall "):
+        query = message.content[len("!recall "):].strip()
+        results = search_archive(query)
+
+        if not results:
+            await message.channel.send("Nothing found in the archive")
+        else:
+            response_lines = ["**Found these:**"]
+            for text, meta in results:
+                response_lines.append(f"- \"{text}\" - {meta['author']} in #{meta['channel']}")
+            await message.channel.send("\n".join(response_lines))
+        return
 
     if TRAINING_MODE:
         if not in_training_channel:
@@ -176,6 +222,18 @@ async def on_raw_reaction_add(payload):
 
         del message_to_doc_id[payload.message_id]
         print(f"[feedback] 👎 on doc {doc_id} - deleted from DB")
+    elif emoji == "📌":
+        channel = discord_client.get_channel(payload.channel_id)
+        message = await channel.fetch_message(payload.message_id)
+
+        add_to_archive(
+            text=message.content,
+            author=str(message.author),
+            channel_name=channel.name,
+            timestamp=message.created_at.isoformat(),
+        )
+        print(f"[archive] Saved message from {message.author}: {message.content[:50]}")
+
 
 if __name__ == "__main__":
     if not DISCORD_TOKEN:
